@@ -4,10 +4,9 @@ use tower_lsp::{Client, LanguageServer, LspService, Server};
 
 use tree_sitter::{Parser, Language};
 
-#[derive(Debug)]
 struct Backend {
     client: Client,
-    parser: Parser
+    parser: Parser,
 }
 
 #[tower_lsp::async_trait]
@@ -23,11 +22,7 @@ impl LanguageServer for Backend {
         })
     }
 
-    async fn initialized(&mut self, _: InitializedParams) {
-        self.parser = Parser::new();
-        extern "C" { fn tree_sitter_friendly_vector_format() -> Language; }
-        let language = unsafe { tree_sitter_friendly_vector_format() };
-        parser.set_language(language).unwrap();
+    async fn initialized(&self, _: InitializedParams) {
         self.client
             .log_message(MessageType::INFO, "server initialized!")
             .await;
@@ -40,13 +35,12 @@ impl LanguageServer for Backend {
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
         let _ = params;
-
     }
 
     async fn completion(&self, _: CompletionParams) -> Result<Option<CompletionResponse>> {
         Ok(Some(CompletionResponse::Array(vec![
             CompletionItem::new_simple("Hello".to_string(), "Some detail".to_string()),
-            CompletionItem::new_simple("Bye".to_string(), "More detail".to_string())
+            CompletionItem::new_simple("Bye".to_string(), "More detail".to_string()),
         ])))
     }
 
@@ -55,7 +49,7 @@ impl LanguageServer for Backend {
             contents: HoverContents::Scalar(
                 MarkedString::String("You're hovering!".to_string())
             ),
-            range: None
+            range: None,
         }))
     }
 }
@@ -65,6 +59,12 @@ async fn main() {
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
 
-    let (service, socket) = LspService::new(|client| Backend { client });
+    let mut parser = Parser::new();
+    extern "C" { fn tree_sitter_fvf() -> Language; }
+    let language = unsafe { tree_sitter_fvf() };
+    parser.set_language(language).unwrap();
+
+    let (service, socket) =
+        LspService::new(|client| Backend { client, parser });
     Server::new(stdin, stdout, socket).serve(service).await;
 }

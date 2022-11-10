@@ -1,0 +1,3 @@
+[submodule "tree-sitter-friendly-vector-format"]
+	path = tree-sitter-friendly-vector-format
+	url = git@github.com:brodo/tree-sitter-friendly-vector-format.git
