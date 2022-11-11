@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+use std::sync::Mutex;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
@@ -6,7 +8,7 @@ use tree_sitter::{Parser, Language};
 
 struct Backend {
     client: Client,
-    parser: Parser,
+    parser: Mutex<HashMap<Url,Parser>>,
 }
 
 #[tower_lsp::async_trait]
@@ -34,7 +36,25 @@ impl LanguageServer for Backend {
 
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
-        let _ = params;
+
+        if let Ok(mut hm) = self.parser.lock() {
+            if !hm.contains_key(&params.text_document.uri){
+                let mut parser = Parser::new();
+                extern "C" { fn tree_sitter_fvf() -> Language; }
+                let language = unsafe { tree_sitter_fvf() };
+                parser.set_language(language).unwrap();
+
+                if let Some(tree) = parser.parse(params.text_document.text, None) {
+                    let root_node = tree.root_node();
+                    eprintln!("{:?}", root_node);
+                }
+
+                hm.insert(params.text_document.uri, parser);
+            }
+
+        } else {
+            eprintln!("Could not lock parser!");
+        }
     }
 
     async fn completion(&self, _: CompletionParams) -> Result<Option<CompletionResponse>> {
@@ -59,12 +79,7 @@ async fn main() {
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
 
-    let mut parser = Parser::new();
-    extern "C" { fn tree_sitter_fvf() -> Language; }
-    let language = unsafe { tree_sitter_fvf() };
-    parser.set_language(language).unwrap();
-
     let (service, socket) =
-        LspService::new(|client| Backend { client, parser });
+        LspService::new(|client| Backend { client, parser: Mutex::new(HashMap::new()) });
     Server::new(stdin, stdout, socket).serve(service).await;
 }
