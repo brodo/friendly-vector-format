@@ -126,7 +126,7 @@ fn main() {
         })
     });
 
-    let mut options = eframe::NativeOptions::default();
+    let options = eframe::NativeOptions::default();
     eframe::run_native(
         "FVF Debugger",
         options,

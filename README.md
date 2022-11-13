@@ -22,8 +22,8 @@ Good Example: https://github.com/dzhu/openscad-language-server/blob/master/src/m
 - Render using egui ✅
 - Simple LSP Server ✅
 - Show the syntax tree in Egui ✅
-- store source code in LSP
-- Handle incremental updates <- heute fertig machen
+- store source code in LSP ✅
+- Handle incremental updates ✅
 - Implement a simple interpreter
 
   - simple eval

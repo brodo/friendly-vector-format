@@ -26,6 +26,11 @@ impl eframe::App for MyApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("Friendly Vector Format Live Preview");
+            if let Ok(has_changed) = self.update_receiver.has_changed() {
+                if has_changed {
+                    ctx.request_repaint();
+                }
+            }
             match self.update_receiver.borrow().clone() {
                 Ok(parsed_code) => {
                     ui.label("Code:");
@@ -39,6 +44,7 @@ impl eframe::App for MyApp {
                     ui.label(e);
                 }
             }
+
             // let text = self.ast_receiver.borrow().to_string();
             // ui.label(text);
             // ui.horizontal(|ui| {
