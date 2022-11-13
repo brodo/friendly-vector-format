@@ -2,7 +2,8 @@
 mod app;
 use std::collections::hash_map::Entry::Vacant;
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
+use tokio::runtime::Runtime;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
@@ -15,7 +16,7 @@ use crate::app::{MyApp};
 struct Backend {
     client: Client,
     parsers: Mutex<HashMap<Url, Parser>>,
-    update_sender: Sender<String>,
+    update_sender: Arc<Sender<String>>,
 }
 
 #[tower_lsp::async_trait]
@@ -55,8 +56,10 @@ impl LanguageServer for Backend {
                     eprintln!("{:?}", root_node);
                     self.update_sender.send("Parsed successfully!".to_string()).unwrap();
                 } else {
-                    let Err(e) = self.update_sender.send("Error getting lock!".to_string());
-                    eprintln!("Parsing error: {}", e);
+                    if let Err(e) = self.update_sender.send("Error getting lock!".to_string()) {
+                        eprintln!("Error sending update: {}", e);
+                    }
+
                 }
                 e.insert( parser);
             }
@@ -83,21 +86,38 @@ impl LanguageServer for Backend {
     }
 }
 
-#[tokio::main]
-async fn main() {
-    let stdin = tokio::io::stdin();
-    let stdout = tokio::io::stdout();
+fn main() {
+    let rt = Runtime::new().expect("Unable to create Runtime");
 
-    let (mut tx, rx) = watch::channel("hello".to_string());
+    // Enter the runtime so that `tokio::spawn` is available immediately.
+    let _enter = rt.enter();
+
+
+
+    let (tx, rx) = watch::channel("hello".to_string());
+
+    let sender = Arc::new(tx);
+
+    std::thread::spawn(move || {
+        rt.block_on(async {
+            loop {
+                let stdin = tokio::io::stdin();
+                let stdout = tokio::io::stdout();
+                let (service, socket) =
+                    LspService::new(|client| Backend { client, parsers: Mutex::new(HashMap::new()), update_sender: sender.clone() });
+                Server::new(stdin, stdout, socket).serve(service).await;
+            }
+        })
+    });
+
+
 
     let options = eframe::NativeOptions::default();
     eframe::run_native(
-        "My egui App",
+        "FVF Debugger",
         options,
         Box::new(|_cc| Box::new(MyApp::new_with_ast_receiver(rx))),
     );
 
-    let (service, socket) =
-        LspService::new(|client| Backend { client, parsers: Mutex::new(HashMap::new()), update_sender: tx });
-    Server::new(stdin, stdout, socket).serve(service).await;
+
 }
