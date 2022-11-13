@@ -9,7 +9,7 @@ VL is easy to read and to write FVF using a text editor.
 It is simple to implement renderers and parsers for FVF.
 
 ## 3. Compatible
-FVF is convertable to SVG and to common raster formats.
+It is convertable to SVG and to common raster formats.
 
 
 ## TODO:
