@@ -3,7 +3,7 @@
 ## Values
 
 ## 1. Ergonomic
-VL is easy to read and to write FVF using a text editor. 
+It is easy to read and to write FVF using a text editor. 
 
 ## 2. Simple to implement
 It is simple to implement renderers and parsers for FVF.
