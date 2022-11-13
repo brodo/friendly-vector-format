@@ -1,32 +1,36 @@
 #![deny(clippy::all)]
+
 mod app;
-use std::collections::hash_map::Entry::Vacant;
+mod parsed_code;
+
+use crate::app::{AppUpdate, MyApp};
+use parsed_code::ParsedCode;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tokio::runtime::Runtime;
-use tower_lsp::jsonrpc::Result;
-use tower_lsp::lsp_types::*;
-use tower_lsp::{Client, LanguageServer, LspService, Server};
 use tokio::sync::watch;
 use tokio::sync::watch::Sender;
-use tree_sitter::{Parser, Language};
-use crate::app::{MyApp};
-
+use tower_lsp::jsonrpc::Result as JsonRpcResult;
+use tower_lsp::lsp_types::*;
+use tower_lsp::{Client, LanguageServer, LspService, Server};
 
 struct Backend {
     client: Client,
-    parsers: Mutex<HashMap<Url, Parser>>,
-    update_sender: Arc<Sender<String>>,
+    parsed_code: Mutex<HashMap<Url, ParsedCode>>,
+    update_sender: Arc<Sender<Result<AppUpdate, String>>>,
 }
 
 #[tower_lsp::async_trait]
 impl LanguageServer for Backend {
-    async fn initialize(&self, _: InitializeParams) -> Result<InitializeResult> {
+    async fn initialize(&self, _: InitializeParams) -> JsonRpcResult<InitializeResult> {
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
+                text_document_sync: Some(TextDocumentSyncCapability::Kind(
+                    TextDocumentSyncKind::INCREMENTAL,
+                )),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 completion_provider: Some(CompletionOptions::default()),
-                ..Default::default()
+                ..ServerCapabilities::default()
             },
             ..Default::default()
         })
@@ -38,49 +42,60 @@ impl LanguageServer for Backend {
             .await;
     }
 
-    async fn shutdown(&self) -> Result<()> {
+    async fn shutdown(&self) -> JsonRpcResult<()> {
         Ok(())
     }
 
-
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
-        if let Ok(mut hm) = self.parsers.lock() {
-            if let Vacant(e) = hm.entry(params.text_document.uri){
-                let mut parser = Parser::new();
-                extern "C" { fn tree_sitter_fvf() -> Language; }
-                let language = unsafe { tree_sitter_fvf() };
-                parser.set_language(language).unwrap();
-
-                if let Some(tree) = parser.parse(params.text_document.text, None) {
-                    let root_node = tree.root_node();
-                    eprintln!("{:?}", root_node);
-                    self.update_sender.send("Parsed successfully!".to_string()).unwrap();
-                } else {
-                    if let Err(e) = self.update_sender.send("Error getting lock!".to_string()) {
-                        eprintln!("Error sending update: {}", e);
-                    }
-
-                }
-                e.insert( parser);
-            }
-
+        if let Ok(mut parsed_code_map) = self.parsed_code.lock() {
+            let parsed_code = ParsedCode::new(params.text_document.text);
+            self.update_sender
+                .send(Ok(AppUpdate {
+                    tree: parsed_code.tree.clone(),
+                    code: parsed_code.code.clone(),
+                }))
+                .unwrap();
+            parsed_code_map.insert(params.text_document.uri, parsed_code);
         } else {
-            self.update_sender.send("Error getting lock!".to_string()).unwrap();
+            self.update_sender
+                .send(Err("Error getting lock!".to_string()))
+                .unwrap();
         }
     }
 
-    async fn completion(&self, _: CompletionParams) -> Result<Option<CompletionResponse>> {
+    async fn did_change(&self, params: DidChangeTextDocumentParams) {
+        self.client
+            .log_message(MessageType::INFO, "file changed!")
+            .await;
+        if let Ok(mut parsed_code_map) = self.parsed_code.lock() {
+            if let Some(parsed_code) = parsed_code_map.get_mut(&params.text_document.uri) {
+                parsed_code.edit(&params.content_changes);
+                self.update_sender.send(Ok(AppUpdate {
+                    tree: parsed_code.tree.clone(),
+                    code: parsed_code.code.clone(),
+                })).unwrap();
+            } else {
+                self.update_sender
+                    .send(Err("Error getting parsed code!".to_string()))
+                    .unwrap();
+            }
+        } else {
+            self.update_sender
+                .send(Err("Error getting lock!".to_string()))
+                .unwrap();
+        }
+    }
+
+    async fn completion(&self, _: CompletionParams) -> JsonRpcResult<Option<CompletionResponse>> {
         Ok(Some(CompletionResponse::Array(vec![
             CompletionItem::new_simple("Hello".to_string(), "Some detail".to_string()),
             CompletionItem::new_simple("Bye".to_string(), "More detail".to_string()),
         ])))
     }
 
-    async fn hover(&self, _: HoverParams) -> Result<Option<Hover>> {
+    async fn hover(&self, _: HoverParams) -> JsonRpcResult<Option<Hover>> {
         Ok(Some(Hover {
-            contents: HoverContents::Scalar(
-                MarkedString::String("You're hovering!".to_string())
-            ),
+            contents: HoverContents::Scalar(MarkedString::String("You're hovering!".to_string())),
             range: None,
         }))
     }
@@ -92,9 +107,7 @@ fn main() {
     // Enter the runtime so that `tokio::spawn` is available immediately.
     let _enter = rt.enter();
 
-
-
-    let (tx, rx) = watch::channel("hello".to_string());
+    let (tx, rx) = watch::channel(Err("not yet initialized!".to_string()));
 
     let sender = Arc::new(tx);
 
@@ -103,21 +116,20 @@ fn main() {
             loop {
                 let stdin = tokio::io::stdin();
                 let stdout = tokio::io::stdout();
-                let (service, socket) =
-                    LspService::new(|client| Backend { client, parsers: Mutex::new(HashMap::new()), update_sender: sender.clone() });
+                let (service, socket) = LspService::new(|client| Backend {
+                    client,
+                    parsed_code: Mutex::new(HashMap::new()),
+                    update_sender: sender.clone(),
+                });
                 Server::new(stdin, stdout, socket).serve(service).await;
             }
         })
     });
 
-
-
-    let options = eframe::NativeOptions::default();
+    let mut options = eframe::NativeOptions::default();
     eframe::run_native(
         "FVF Debugger",
         options,
-        Box::new(|_cc| Box::new(MyApp::new_with_ast_receiver(rx))),
+        Box::new(|_cc| Box::new(MyApp::new_with_update_receiver(rx))),
     );
-
-
 }

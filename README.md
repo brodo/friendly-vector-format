@@ -12,8 +12,22 @@ It is simple to implement renderers and parsers for FVF.
 It is convertable to SVG and to common raster formats.
 
 
+## Notes:
+
+Good Example: https://github.com/dzhu/openscad-language-server/blob/master/src/main.rs
+
 ## TODO:
 
-1. Get Syntax highlighting to work with helix -> https://tree-sitter.github.io/tree-sitter/syntax-highlighting
-2. Render using egui
-3. Simple LSP Server
+- Get Syntax highlighting to work with helix -> https://tree-sitter.github.io/tree-sitter/syntax-highlighting ✅
+- Render using egui ✅
+- Simple LSP Server ✅
+- Show the syntax tree in Egui ✅
+- store source code in LSP
+- Handle incremental updates <- heute fertig machen
+- Implement a simple interpreter
+
+  - simple eval
+  - simple environment
+- First render in egui 
+- Add syntax for defining functions
+- Adopt eval for user-defined functions

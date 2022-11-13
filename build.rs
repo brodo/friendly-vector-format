@@ -1,7 +1,9 @@
 use std::path::PathBuf;
 
 fn main() {
-    let dir: PathBuf = ["tree-sitter-friendly-vector-format", "src"].iter().collect();
+    let dir: PathBuf = ["tree-sitter-friendly-vector-format", "src"]
+        .iter()
+        .collect();
 
     cc::Build::new()
         .include(&dir)
